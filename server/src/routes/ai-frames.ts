@@ -12,14 +12,23 @@ const prisma = new PrismaClient();
 
 // Generate AI frame from a text prompt
 router.post('/generate', async (req: Request, res: Response) => {
+  const startTime = Date.now();
+  console.log('[FrameGen] Starting frame generation:', { 
+    timestamp: new Date().toISOString(),
+    prompt: req.body.prompt?.slice(0, 50),
+    userId: req.body.userId 
+  });
+  
   try {
     const { prompt, userId, artworkWidth, artworkHeight, unit } = req.body;
     
     if (!prompt || !userId) {
+      console.log('[FrameGen] Missing required fields:', { prompt: !!prompt, userId: !!userId });
       return res.status(400).json({ error: 'Prompt and userId are required' });
     }
 
     // Step 1: Use GPT-4o to refine the frame prompt and extract metadata
+    console.log('[FrameGen] Step 1: Calling GPT-4o...');
     const refinementResponse = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [
@@ -55,8 +64,10 @@ Respond in JSON:
     });
 
     const frameSpec = JSON.parse(refinementResponse.choices[0].message.content || '{}');
+    console.log('[FrameGen] Step 1 complete:', { name: frameSpec.name, material: frameSpec.material });
 
     // Step 2: Generate the frame image with DALL-E 3
+    console.log('[FrameGen] Step 2: Calling DALL-E 3...');
     const dalleResponse = await openai.images.generate({
       model: 'dall-e-3',
       prompt: `${frameSpec.dallePrompt}. The frame must be shown perfectly head-on with no perspective distortion. The center of the frame is completely empty (solid black rectangle). The background outside the frame is pure white. Photorealistic product photography, studio lighting, 8K detail.`,
@@ -74,10 +85,16 @@ Respond in JSON:
     if (!generatedImageUrl) {
       throw new Error('DALL-E returned no image URL');
     }
+    console.log('[FrameGen] Step 2 complete: Got image URL');
 
     // Step 3: Download, process, and store the frame image
+    console.log('[FrameGen] Step 3: Processing image...');
     const imageResponse = await fetch(generatedImageUrl);
+    if (!imageResponse.ok) {
+      throw new Error(`Failed to fetch image: ${imageResponse.status} ${imageResponse.statusText}`);
+    }
     const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+    console.log('[FrameGen] Step 3a: Downloaded image, size:', imageBuffer.length);
 
     // Create output directories
     const framesDir = path.join(process.cwd(), 'public', 'frames');
@@ -92,17 +109,20 @@ Respond in JSON:
       .resize(2048, 2048, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
       .png()
       .toFile(path.join(framesDir, filename));
+    console.log('[FrameGen] Step 3b: Saved full-size frame');
 
     // Generate thumbnail
     await sharp(imageBuffer)
       .resize(256, 256, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
       .png()
       .toFile(path.join(framesDir, thumbFilename));
+    console.log('[FrameGen] Step 3c: Saved thumbnail');
 
     const imageUrl = `/frames/${filename}`;
     const thumbnailUrl = `/frames/${thumbFilename}`;
 
     // Step 4: Save to database
+    console.log('[FrameGen] Step 4: Saving to database...');
     const slug = frameSpec.name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
@@ -126,6 +146,10 @@ Respond in JSON:
         tags: frameSpec.tags || [],
       },
     });
+    console.log('[FrameGen] Step 4 complete: Saved to DB:', savedFrame.id);
+
+    const duration = Date.now() - startTime;
+    console.log('[FrameGen] Success! Duration:', duration, 'ms');
 
     res.json({
       frame: savedFrame,
@@ -134,8 +158,13 @@ Respond in JSON:
     });
 
   } catch (error: any) {
-    console.error('AI frame generation error:', error);
-    res.status(500).json({ error: error.message });
+    const duration = Date.now() - startTime;
+    console.error('[FrameGen] ERROR after', duration, 'ms:', {
+      message: error.message,
+      stack: error.stack?.slice(0, 500),
+      type: error.constructor?.name,
+    });
+    res.status(500).json({ error: error.message || 'Frame generation failed' });
   }
 });
 
