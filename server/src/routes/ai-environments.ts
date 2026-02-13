@@ -13,8 +13,17 @@ const prisma = new PrismaClient();
 // Analyze artwork and suggest environment prompt
 router.post('/analyze-artwork', async (req: Request, res: Response) => {
   try {
-    // req.body contains: artwork dimensions, frame style, mat option
-    const { width, height, unit, frameStyle, matOption } = req.body;
+    const { width, height, unit, frameStyle, frameDescription, frameMaterial, framePrompt, matOption } = req.body;
+
+    // Build frame context for the prompt
+    let frameContext = '';
+    if (frameStyle === 'ai-generated' && framePrompt) {
+      frameContext = `The artwork uses a custom AI-generated frame: "${frameDescription}". Frame prompt: ${framePrompt}`;
+    } else if (frameDescription) {
+      frameContext = `The artwork uses a ${frameStyle} frame made of ${frameMaterial || 'wood'} (${frameDescription}).`;
+    }
+
+    const matContext = matOption !== 'none' ? ` It has a ${matOption} mat.` : '';
 
     const analysisResponse = await openai.chat.completions.create({
       model: 'gpt-4o',
@@ -25,21 +34,22 @@ router.post('/analyze-artwork', async (req: Request, res: Response) => {
 
 The environment should:
 1. Feature a clean wall straight-on where artwork can be hung (center of image)
-2. Have appropriate room context (furniture, decor) that matches the frame style
-3. Use lighting and colors that complement the frame
+2. Match the frame style and material (${frameDescription || 'standard frame'})
+3. Have appropriate room context that complements the artwork size
+4. Use lighting and colors that make the frame stand out
 
 Respond in JSON:
 {
-  "roomType": "living room|bedroom|gallery|office|etc",
-  "styleVibe": "modern|minimalist|cozy|luxury|industrial",
-  "colorPalette": "warm neutrals|cool tones|etc",
-  "lighting": "natural light from left|soft ambient|spotlight|etc",
-  "generationPrompt": "Complete DALL-E prompt for the environment. MUST specify: straight-on camera view facing wall, centered perspective, photorealistic interior suitable for hanging artwork"
+  "roomType": "living room|bedroom|gallery|office|foyer|dining room",
+  "styleVibe": "modern|traditional|minimalist|cozy|luxury|industrial|rustic",
+  "colorPalette": "description of colors",
+  "lighting": "lighting description",
+  "generationPrompt": "Complete DALL-E prompt for the environment. MUST specify: straight-on camera view facing wall, centered perspective, photorealistic interior. Include frame context: ${frameContext}${matContext}"
 }`
         },
         {
           role: 'user',
-          content: `Create an environment for artwork sized ${width}x${height} ${unit}, with ${frameStyle} frame and ${matOption} mat option.`
+          content: `Create an environment for artwork sized ${width}x${height} ${unit}. ${frameContext}${matContext}`
         }
       ],
       max_tokens: 600,
@@ -78,7 +88,7 @@ CRITICAL REQUIREMENTS for the DALL-E prompt:
 - Room: Full room context visible but the wall is the focus
 - Style: Photorealistic interior photography, 8K quality
 - Lighting: Natural and appropriate for artwork display
-- NO artwork on the wall - it should be empty/blank for the user to add their own
+- NO artwork on the wall - it should be empty/blank
 
 Respond ONLY with the refined DALL-E prompt text (no JSON, no extra commentary).`
         },
