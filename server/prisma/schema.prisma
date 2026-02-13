@@ -1,0 +1,27 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Mockup {
+  id             String   @id @default(uuid())
+  userId         String
+  artworkUrl     String
+  mockupUrl      String?
+  width          Float
+  height         Float
+  unit           String   @default("in")
+  frameStyle     String   @default("none")
+  matOption      String   @default("none")
+  matWidth       Float    @default(2)
+  templateId     String?
+  aiGenerated    Boolean  @default(false)
+  aiPrompt       String?
+  environmentDesc String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
