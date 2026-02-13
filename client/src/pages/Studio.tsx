@@ -31,6 +31,24 @@ export default function Studio() {
     }
   };
 
+  // Get frame description for analysis
+  const getFrameContext = () => {
+    if (store.frameMode === 'ai-generate' && store.aiGeneratedFrame) {
+      return {
+        style: 'ai-generated',
+        description: store.aiGeneratedFrame.name,
+        material: store.aiGeneratedFrame.material,
+        prompt: store.aiGeneratedFrame.prompt,
+      };
+    }
+    return {
+      style: store.frameStyle,
+      description: store.frameStyle.replace(/-/g, ' '),
+      material: store.frameStyle.split('-')[0] || 'wood',
+      prompt: null,
+    };
+  };
+
   const handleGenerate = async () => {
     if (!store.artworkFile) return;
     
@@ -40,6 +58,7 @@ export default function Studio() {
     try {
       let environmentPrompt = '';
       let environmentImageUrl = '';
+      let frameContext = getFrameContext();
 
       // Determine environment source
       if (store.environmentMode === 'ai-auto' || store.useAiSuggestion) {
@@ -52,22 +71,35 @@ export default function Studio() {
         analysisForm.append('width', String(store.artworkDimensions.width));
         analysisForm.append('height', String(store.artworkDimensions.height));
         analysisForm.append('unit', store.artworkDimensions.unit);
-        analysisForm.append('frameStyle', store.frameStyle);
+        analysisForm.append('frameStyle', frameContext.style);
+        analysisForm.append('frameDescription', frameContext.description);
+        analysisForm.append('frameMaterial', frameContext.material || '');
+        if (frameContext.prompt) {
+          analysisForm.append('framePrompt', frameContext.prompt);
+        }
         analysisForm.append('matOption', store.matOption);
 
         const analysis = await axios.post(`${API_URL}/api/ai/analyze-artwork`, analysisForm);
         environmentPrompt = analysis.data.generationPrompt;
-        store.setAiPrompt(environmentPrompt);
+        
+        // Combine frame + environment for display
+        const combinedPrompt = `Frame: ${frameContext.description}. ${environmentPrompt}`;
+        store.setAiPrompt(combinedPrompt);
         store.setGenerationProgress(35);
       } else if (store.environmentMode === 'ai-prompt' && store.aiGeneratedEnvironment) {
         // User generated a custom environment — use the image URL
         environmentImageUrl = `${API_URL}${store.aiGeneratedEnvironment.imageUrl}`;
+        // Combine prompts for display
+        const combinedPrompt = `Frame: ${frameContext.description}. Environment: ${store.aiGeneratedEnvironment.prompt || store.aiGeneratedEnvironment.name}`;
+        store.setAiPrompt(combinedPrompt);
         store.setGenerationProgress(50);
         // Track usage
         axios.post(`${API_URL}/api/ai/environments/saved/${store.aiGeneratedEnvironment.id}/use`).catch(() => {});
       } else if (store.selectedTemplate) {
         // Preset template
         environmentPrompt = store.selectedTemplate.prompt;
+        const combinedPrompt = `Frame: ${frameContext.description}. Environment: ${store.selectedTemplate.name} - ${environmentPrompt.slice(0, 100)}...`;
+        store.setAiPrompt(combinedPrompt);
       }
 
       // Generate environment image if we don't already have one
@@ -274,7 +306,7 @@ export default function Studio() {
 
                   {store.aiPrompt && (
                     <div className="glass-panel p-4 space-y-2">
-                      <p className="text-xs text-gallery-500 uppercase tracking-wider">AI-Generated Prompt</p>
+                      <p className="text-xs text-gallery-500 uppercase tracking-wider">AI Context</p>
                       <p className="text-sm text-gallery-300 italic">{store.aiPrompt}</p>
                     </div>
                   )}
