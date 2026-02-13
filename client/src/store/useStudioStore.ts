@@ -49,6 +49,7 @@ export interface AiGeneratedEnvironment {
   mood?: string;
   tags: string[];
   createdAt: string;
+  description?: string; // FIX: Added missing property
 }
 
 // NEW: Mode Types
@@ -98,59 +99,65 @@ interface StudioState {
   setUseAi: (use: boolean) => void;
   setAiPrompt: (prompt: string) => void;
   setGeneratedMockup: (url: string) => void;
-  setIsGenerating: (loading: boolean) => void;
-  setProgress: (progress: number) => void;
+  setIsGenerating: (isGenerating: boolean) => void;
+  setGenerationProgress: (progress: number) => void;
+  reset: () => void;
   // NEW: Frame Mode Actions
   setFrameMode: (mode: FrameMode) => void;
   setAiFramePrompt: (prompt: string) => void;
   setAiGeneratedFrame: (frame: AiGeneratedFrame | null) => void;
   setAiFrameVariations: (variations: AiGeneratedFrame[]) => void;
   setSavedFrames: (frames: AiGeneratedFrame[]) => void;
-  setIsGeneratingFrame: (loading: boolean) => void;
+  setIsGeneratingFrame: (isGenerating: boolean) => void;
   // NEW: Environment Mode Actions
   setEnvironmentMode: (mode: EnvironmentMode) => void;
   setAiEnvironmentPrompt: (prompt: string) => void;
   setAiGeneratedEnvironment: (env: AiGeneratedEnvironment | null) => void;
   setAiEnvironmentVariations: (variations: AiGeneratedEnvironment[]) => void;
   setSavedEnvironments: (envs: AiGeneratedEnvironment[]) => void;
-  setIsGeneratingEnvironment: (loading: boolean) => void;
-  // Reset
-  reset: () => void;
+  setIsGeneratingEnvironment: (isGenerating: boolean) => void;
 }
 
-const initialState = {
-  artworkFile: null as File | null,
-  artworkPreview: null as string | null,
-  artworkDimensions: { width: 24, height: 36, unit: 'in' as const },
-  frameStyle: 'none' as FrameStyle,
-  matOption: 'none' as MatOption,
-  matWidth: 2,
-  selectedTemplate: null as TemplateConfig | null,
-  environmentCategory: null as EnvironmentCategory | null,
-  useAiSuggestion: false,
-  aiPrompt: null as string | null,
-  generatedMockup: null as string | null,
-  isGenerating: false,
-  generationProgress: 0,
-  // NEW initial state
-  frameMode: 'preset' as FrameMode,
-  aiFramePrompt: '',
-  aiGeneratedFrame: null as AiGeneratedFrame | null,
-  aiFrameVariations: [] as AiGeneratedFrame[],
-  savedFrames: [] as AiGeneratedFrame[],
-  isGeneratingFrame: false,
-  environmentMode: 'preset' as EnvironmentMode,
-  aiEnvironmentPrompt: '',
-  aiGeneratedEnvironment: null as AiGeneratedEnvironment | null,
-  aiEnvironmentVariations: [] as AiGeneratedEnvironment[],
-  savedEnvironments: [] as AiGeneratedEnvironment[],
-  isGeneratingEnvironment: false,
+const initialDimensions: ArtworkDimensions = {
+  width: 24,
+  height: 36,
+  unit: 'in',
 };
 
 export const useStudioStore = create<StudioState>((set) => ({
-  ...initialState,
+  // Initial state
+  artworkFile: null,
+  artworkPreview: null,
+  artworkDimensions: initialDimensions,
+  frameStyle: 'none',
+  matOption: 'none',
+  matWidth: 2,
+  selectedTemplate: null,
+  environmentCategory: null,
+  useAiSuggestion: true,
+  aiPrompt: null,
+  generatedMockup: null,
+  isGenerating: false,
+  generationProgress: 0,
+  // NEW: Frame Mode - Initial
+  frameMode: 'preset',
+  aiFramePrompt: '',
+  aiGeneratedFrame: null,
+  aiFrameVariations: [],
+  savedFrames: [],
+  isGeneratingFrame: false,
+  // NEW: Environment Mode - Initial
+  environmentMode: 'preset',
+  aiEnvironmentPrompt: '',
+  aiGeneratedEnvironment: null,
+  aiEnvironmentVariations: [],
+  savedEnvironments: [],
+  isGeneratingEnvironment: false,
+  // Actions
   setArtwork: (file, preview) => set({ artworkFile: file, artworkPreview: preview }),
-  setDimensions: (dims) => set((s) => ({ artworkDimensions: { ...s.artworkDimensions, ...dims } })),
+  setDimensions: (dims) => set((state) => ({ 
+    artworkDimensions: { ...state.artworkDimensions, ...dims } 
+  })),
   setFrame: (style) => set({ frameStyle: style }),
   setMat: (option) => set({ matOption: option }),
   setMatWidth: (width) => set({ matWidth: width }),
@@ -159,20 +166,43 @@ export const useStudioStore = create<StudioState>((set) => ({
   setUseAi: (use) => set({ useAiSuggestion: use }),
   setAiPrompt: (prompt) => set({ aiPrompt: prompt }),
   setGeneratedMockup: (url) => set({ generatedMockup: url }),
-  setIsGenerating: (loading) => set({ isGenerating: loading }),
-  setProgress: (progress) => set({ generationProgress: progress }),
-  // NEW actions
+  setIsGenerating: (isGenerating) => set({ isGenerating }),
+  setGenerationProgress: (progress) => set({ generationProgress: progress }),
+  reset: () => set({
+    artworkFile: null,
+    artworkPreview: null,
+    artworkDimensions: initialDimensions,
+    frameStyle: 'none',
+    matOption: 'none',
+    matWidth: 2,
+    selectedTemplate: null,
+    environmentCategory: null,
+    useAiSuggestion: true,
+    aiPrompt: null,
+    generatedMockup: null,
+    isGenerating: false,
+    generationProgress: 0,
+    frameMode: 'preset',
+    aiFramePrompt: '',
+    aiGeneratedFrame: null,
+    aiFrameVariations: [],
+    environmentMode: 'preset',
+    aiEnvironmentPrompt: '',
+    aiGeneratedEnvironment: null,
+    aiEnvironmentVariations: [],
+  }),
+  // NEW: Frame Mode Actions
   setFrameMode: (mode) => set({ frameMode: mode }),
   setAiFramePrompt: (prompt) => set({ aiFramePrompt: prompt }),
   setAiGeneratedFrame: (frame) => set({ aiGeneratedFrame: frame }),
   setAiFrameVariations: (variations) => set({ aiFrameVariations: variations }),
   setSavedFrames: (frames) => set({ savedFrames: frames }),
-  setIsGeneratingFrame: (loading) => set({ isGeneratingFrame: loading }),
+  setIsGeneratingFrame: (isGenerating) => set({ isGeneratingFrame: isGenerating }),
+  // NEW: Environment Mode Actions
   setEnvironmentMode: (mode) => set({ environmentMode: mode }),
   setAiEnvironmentPrompt: (prompt) => set({ aiEnvironmentPrompt: prompt }),
   setAiGeneratedEnvironment: (env) => set({ aiGeneratedEnvironment: env }),
   setAiEnvironmentVariations: (variations) => set({ aiEnvironmentVariations: variations }),
   setSavedEnvironments: (envs) => set({ savedEnvironments: envs }),
-  setIsGeneratingEnvironment: (loading) => set({ isGeneratingEnvironment: loading }),
-  reset: () => set(initialState),
+  setIsGeneratingEnvironment: (isGenerating) => set({ isGeneratingEnvironment: isGenerating }),
 }));
