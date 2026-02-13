@@ -1,7 +1,6 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import { generateRouter } from './routes/generate';
@@ -19,19 +18,21 @@ app.use(cors({
 app.use(express.json({ limit: '50mb' }));
 
 // Ensure upload/output directories exist
-fs.mkdirSync('uploads', { recursive: true });
-fs.mkdirSync('outputs', { recursive: true });
+const uploadsDir = path.join(__dirname, '..', 'uploads');
+const outputsDir = path.join(__dirname, '..', 'outputs');
+fs.mkdirSync(uploadsDir, { recursive: true });
+fs.mkdirSync(outputsDir, { recursive: true });
 
 // Static files for serving mockups
-app.use('/outputs', express.static('outputs'));
-app.use('/uploads', express.static('uploads'));
+app.use('/outputs', express.static(outputsDir));
+app.use('/uploads', express.static(uploadsDir));
 
 // Routes
 app.use('/api/generate', generateRouter);
 app.use('/api/ai', aiRouter);
 
 // Health check
-app.get('/health', (_, res) => res.json({ 
+app.get('/health', (_req: Request, res: Response) => res.json({ 
   status: 'ok',
   timestamp: new Date().toISOString()
 }));
