@@ -24,6 +24,7 @@ function getFrameConfig(style: string) {
     'floating-black': { width: 3, color: '#111111', shadow: true, double: false },
     'shadow-box': { width: 30, color: '#1a1a1a', shadow: true, double: false },
     'canvas-wrap': { width: 0, color: '#000', shadow: true, double: false },
+    'ai-generated': { width: 0, color: '#000', shadow: true, double: false }, // AI frame handled separately
   };
   return configs[style] || configs['none'];
 }
@@ -48,8 +49,32 @@ async function createFramedArtwork(
   frameCfg: { width: number; color: string; shadow: boolean; double: boolean },
   matPx: number,
   matColor: string,
+  aiFrameBuffer?: Buffer,
 ): Promise<Buffer> {
   const fw = frameCfg.width;
+
+  // If AI frame provided, use it directly
+  if (aiFrameBuffer) {
+    // Resize AI frame to match the total dimensions
+    const resizedFrame = await sharp(aiFrameBuffer)
+      .resize(totalW, totalH, { fit: 'fill' })
+      .toBuffer();
+    
+    // Composite artwork into the center of the frame
+    const artworkLeft = fw + matPx;
+    const artworkTop = fw + matPx;
+    
+    return await sharp(resizedFrame)
+      .composite([
+        {
+          input: artworkBuffer,
+          left: artworkLeft,
+          top: artworkTop,
+        }
+      ])
+      .png()
+      .toBuffer();
+  }
 
   // Create base canvas for the full framed piece
   const svg = `
@@ -94,6 +119,21 @@ const upload = multer({
   dest: path.join(__dirname, '..', '..', 'uploads') 
 });
 
+// Download image from URL to temp file
+async function downloadImage(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to download image: ${response.status} ${response.statusText}`);
+  }
+  
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const tempPath = path.join(__dirname, '..', '..', 'uploads', `temp-${uuid()}.png`);
+  fs.mkdirSync(path.dirname(tempPath), { recursive: true });
+  fs.writeFileSync(tempPath, buffer);
+  
+  return tempPath;
+}
+
 // Composite artwork onto environment using Sharp
 router.post('/composite', upload.fields([
   { name: 'artwork', maxCount: 1 },
@@ -102,16 +142,43 @@ router.post('/composite', upload.fields([
   const files = req.files as { [fieldname: string]: Express.Multer.File[] };
   const artworkFile = files?.artwork?.[0];
   const environmentFile = files?.environment?.[0];
+  const environmentFileUrl = req.body.environmentUrl;
+  const aiFrameImageUrl = req.body.aiFrameImageUrl;
   
-  if (!artworkFile || !environmentFile) {
-    return res.status(400).json({ error: 'Both artwork and environment images required' });
+  if (!artworkFile) {
+    return res.status(400).json({ error: 'Artwork image is required' });
   }
 
+  if (!environmentFile && !environmentFileUrl) {
+    return res.status(400).json({ error: 'Either environment file or environment URL is required' });
+  }
+
+  let envPath: string | null = null;
+  let aiFramePath: string | null = null;
+  let envTempFile = false;
+  let aiFrameTempFile = false;
+
   try {
-    const { width, height, unit, frameStyle, matOption, matWidth, posX = 50, posY = 45, scale = 1 } = req.body;
+    const { width, height, unit, frameStyle, matOption, matWidth, posX = 50, posY = 45, scale = 1, aiFrameBorderWidth } = req.body;
+
+    // Get environment image path (download if URL provided)
+    if (environmentFile) {
+      envPath = environmentFile.path;
+    } else if (environmentFileUrl) {
+      envPath = await downloadImage(environmentFileUrl);
+      envTempFile = true;
+    }
+
+    // Get AI frame image if provided
+    let aiFrameBuffer: Buffer | undefined;
+    if (aiFrameImageUrl) {
+      aiFramePath = await downloadImage(aiFrameImageUrl);
+      aiFrameTempFile = true;
+      aiFrameBuffer = await sharp(aiFramePath).toBuffer();
+    }
 
     // Load environment image to get its dimensions
-    const envMeta = await sharp(environmentFile.path).metadata();
+    const envMeta = await sharp(envPath!).metadata();
     const envWidth = envMeta.width || 1920;
     const envHeight = envMeta.height || 1080;
 
@@ -123,6 +190,10 @@ router.post('/composite', upload.fields([
 
     // Frame dimensions
     const frameCfg = getFrameConfig(frameStyle);
+    // Use AI frame border width if provided
+    if (aiFrameBorderWidth) {
+      frameCfg.width = parseInt(aiFrameBorderWidth);
+    }
     const matPx = matOption !== 'none' ? Math.round(parseFloat(matWidth as string) * pxPerInch) : 0;
     const totalFrameW = frameCfg.width;
     const totalW = artW + (matPx * 2) + (totalFrameW * 2);
@@ -142,7 +213,8 @@ router.post('/composite', upload.fields([
       totalH,
       frameCfg,
       matPx,
-      getMatColor(matOption)
+      getMatColor(matOption),
+      aiFrameBuffer
     );
 
     // Position on environment
@@ -150,7 +222,7 @@ router.post('/composite', upload.fields([
     const top = Math.round((parseFloat(posY as string) / 100) * envHeight - totalH / 2);
 
     // Composite
-    const result = await sharp(environmentFile.path)
+    const result = await sharp(envPath!)
       .composite([
         {
           input: frameBuffer,
@@ -166,10 +238,6 @@ router.post('/composite', upload.fields([
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
     fs.writeFileSync(outputPath, result);
 
-    // Clean up temp files
-    fs.unlinkSync(artworkFile.path);
-    fs.unlinkSync(environmentFile.path);
-
     res.json({
       mockupUrl: `/outputs/${outputId}.jpg`,
       dimensions: { totalW, totalH, artW, artH },
@@ -177,16 +245,21 @@ router.post('/composite', upload.fields([
 
   } catch (error: any) {
     console.error('Compositing error:', error);
-    
-    // Cleanup on error
+    res.status(500).json({ error: error.message });
+  } finally {
+    // Cleanup temp files
     if (artworkFile?.path) {
       try { fs.unlinkSync(artworkFile.path); } catch {}
     }
     if (environmentFile?.path) {
       try { fs.unlinkSync(environmentFile.path); } catch {}
     }
-    
-    res.status(500).json({ error: error.message });
+    if (envTempFile && envPath) {
+      try { fs.unlinkSync(envPath); } catch {}
+    }
+    if (aiFrameTempFile && aiFramePath) {
+      try { fs.unlinkSync(aiFramePath); } catch {}
+    }
   }
 });
 
