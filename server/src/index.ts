@@ -5,6 +5,8 @@ import fs from 'fs';
 import path from 'path';
 import { generateRouter } from './routes/generate';
 import { aiRouter } from './routes/ai';
+import { aiFramesRouter } from './routes/ai-frames';
+import { aiEnvironmentsRouter } from './routes/ai-environments';
 
 dotenv.config();
 
@@ -20,16 +22,25 @@ app.use(express.json({ limit: '50mb' }));
 // Ensure upload/output directories exist
 const uploadsDir = path.join(__dirname, '..', 'uploads');
 const outputsDir = path.join(__dirname, '..', 'outputs');
+const framesDir = path.join(__dirname, '..', 'public', 'frames');
+const envsDir = path.join(__dirname, '..', 'public', 'environments');
+
 fs.mkdirSync(uploadsDir, { recursive: true });
 fs.mkdirSync(outputsDir, { recursive: true });
+fs.mkdirSync(framesDir, { recursive: true });
+fs.mkdirSync(envsDir, { recursive: true });
 
-// Static files for serving mockups
+// Static files
 app.use('/outputs', express.static(outputsDir));
 app.use('/uploads', express.static(uploadsDir));
+app.use('/frames', express.static(framesDir));
+app.use('/environments', express.static(envsDir));
 
 // Routes
 app.use('/api/generate', generateRouter);
 app.use('/api/ai', aiRouter);
+app.use('/api/ai/frames', aiFramesRouter);
+app.use('/api/ai/environments', aiEnvironmentsRouter);
 
 // Health check
 app.get('/health', (_req: Request, res: Response) => res.json({ 
