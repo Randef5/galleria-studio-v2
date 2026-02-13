@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronRight, ChevronLeft, Loader2, Download, RefreshCw, Sparkles } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Loader2, Download, RefreshCw, Sparkles, Wand2, Globe } from 'lucide-react';
 import { useStudioStore } from '../store/useStudioStore';
 import ArtworkUpload from '../components/ArtworkUpload';
 import DimensionsPanel from '../components/DimensionsPanel';
@@ -10,6 +10,7 @@ import toast from 'react-hot-toast';
 import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:4000';
+const USER_ID = 'demo-user';
 const STEPS = ['Upload', 'Size & Frame', 'Environment', 'Generate'];
 
 export default function Studio() {
@@ -20,7 +21,12 @@ export default function Studio() {
     switch (step) {
       case 0: return !!store.artworkPreview;
       case 1: return store.artworkDimensions.width > 0 && store.artworkDimensions.height > 0;
-      case 2: return store.selectedTemplate || store.useAiSuggestion;
+      case 2: 
+        // Check based on environment mode
+        if (store.environmentMode === 'preset') return !!store.selectedTemplate;
+        if (store.environmentMode === 'ai-auto') return true; // AI will generate
+        if (store.environmentMode === 'ai-prompt') return !!store.aiGeneratedEnvironment;
+        return store.useAiSuggestion || !!store.selectedTemplate;
       default: return true;
     }
   };
@@ -33,9 +39,11 @@ export default function Studio() {
 
     try {
       let environmentPrompt = '';
+      let environmentImageUrl = '';
 
-      if (store.useAiSuggestion) {
-        // Step 1: Analyze artwork with AI
+      // Determine environment source
+      if (store.environmentMode === 'ai-auto' || store.useAiSuggestion) {
+        // AI auto-match: analyze artwork and generate environment
         store.setProgress(15);
         toast('Analyzing your artwork...', { icon: '🔍' });
 
@@ -51,38 +59,59 @@ export default function Studio() {
         environmentPrompt = analysis.data.generationPrompt;
         store.setAiPrompt(environmentPrompt);
         store.setProgress(35);
-      } else {
-        environmentPrompt = store.selectedTemplate?.prompt || '';
+      } else if (store.environmentMode === 'ai-prompt' && store.aiGeneratedEnvironment) {
+        // User generated a custom environment — use the saved image directly
+        environmentImageUrl = `${API_URL}${store.aiGeneratedEnvironment.imageUrl}`;
+        store.setProgress(50);
+        // Track usage
+        axios.post(`${API_URL}/api/ai/environments/saved/${store.aiGeneratedEnvironment.id}/use`).catch(() => {});
+      } else if (store.selectedTemplate) {
+        // Preset template
+        environmentPrompt = store.selectedTemplate.prompt;
       }
 
-      // Step 2: Generate environment image
-      toast('Generating environment...', { icon: '🎨' });
-      store.setProgress(50);
+      // Generate environment image if we don't already have one
+      if (!environmentImageUrl && environmentPrompt) {
+        toast('Generating environment...', { icon: '🎨' });
+        store.setProgress(50);
 
-      const envResponse = await axios.post(`${API_URL}/api/ai/generate-environment`, {
-        prompt: environmentPrompt,
-        width: store.artworkDimensions.width,
-        height: store.artworkDimensions.height,
-        unit: store.artworkDimensions.unit,
-      });
+        const envResponse = await axios.post(`${API_URL}/api/ai/generate-environment`, {
+          prompt: environmentPrompt,
+          width: store.artworkDimensions.width,
+          height: store.artworkDimensions.height,
+          unit: store.artworkDimensions.unit,
+        });
+
+        environmentImageUrl = envResponse.data.imageUrl;
+      }
 
       store.setProgress(75);
-
-      // Step 3: Download generated environment and composite
       toast('Compositing mockup...', { icon: '🖼️' });
 
-      const envImageResp = await axios.get(envResponse.data.imageUrl, { responseType: 'blob' });
-      const envBlob = envImageResp.data;
+      // Download environment image as blob
+      const envImageResp = await axios.get(environmentImageUrl, { responseType: 'blob' });
 
+      // Build composite request
       const compositeForm = new FormData();
       compositeForm.append('artwork', store.artworkFile);
-      compositeForm.append('environment', envBlob, 'environment.png');
+      compositeForm.append('environment', envImageResp.data, 'environment.png');
       compositeForm.append('width', String(store.artworkDimensions.width));
       compositeForm.append('height', String(store.artworkDimensions.height));
       compositeForm.append('unit', store.artworkDimensions.unit);
-      compositeForm.append('frameStyle', store.frameStyle);
       compositeForm.append('matOption', store.matOption);
       compositeForm.append('matWidth', String(store.matWidth));
+
+      // Determine frame source
+      if (store.frameMode === 'ai-generate' && store.aiGeneratedFrame) {
+        // AI-generated frame: pass the frame image URL and metadata
+        compositeForm.append('frameStyle', 'ai-generated');
+        compositeForm.append('aiFrameImageUrl', `${API_URL}${store.aiGeneratedFrame.imageUrl}`);
+        compositeForm.append('aiFrameBorderWidth', String(store.aiGeneratedFrame.borderWidth));
+        // Track usage
+        axios.post(`${API_URL}/api/ai/frames/saved/${store.aiGeneratedFrame.id}/use`).catch(() => {});
+      } else {
+        compositeForm.append('frameStyle', store.frameStyle);
+      }
 
       const result = await axios.post(`${API_URL}/api/generate/composite`, compositeForm);
 
@@ -92,11 +121,32 @@ export default function Studio() {
       toast.success('Mockup generated!');
     } catch (error: any) {
       console.error(error);
-      toast.error(error.response?.data?.error || 'Generation failed. Please try again.');
+      toast.error(error.response?.data?.error || 'Generation failed');
     } finally {
       store.setIsGenerating(false);
     }
   };
+
+  // Get display info for summary
+  const getFrameDisplay = () => {
+    if (store.frameMode === 'ai-generate' && store.aiGeneratedFrame) {
+      return { icon: <Wand2 className="w-3 h-3" />, text: store.aiGeneratedFrame.name };
+    }
+    return { icon: null, text: store.frameStyle.replace(/-/g, ' ') };
+  };
+
+  const getEnvironmentDisplay = () => {
+    if (store.environmentMode === 'ai-auto' || store.useAiSuggestion) {
+      return { icon: <Sparkles className="w-3 h-3" />, text: 'AI Selected' };
+    }
+    if (store.environmentMode === 'ai-prompt' && store.aiGeneratedEnvironment) {
+      return { icon: <Globe className="w-3 h-3" />, text: store.aiGeneratedEnvironment.name };
+    }
+    return { icon: null, text: store.selectedTemplate?.name || 'None' };
+  };
+
+  const frameDisplay = getFrameDisplay();
+  const envDisplay = getEnvironmentDisplay();
 
   return (
     <div className="min-h-screen p-8">
@@ -204,8 +254,9 @@ export default function Studio() {
                     </div>
                     <div className="flex justify-between py-2 border-b border-white/5">
                       <span className="text-gallery-400">Frame</span>
-                      <span className="text-gallery-200 capitalize">
-                        {store.frameStyle.replace(/-/g, ' ')}
+                      <span className="text-gallery-200 capitalize flex items-center gap-1.5">
+                        {frameDisplay.icon}
+                        {frameDisplay.text}
                       </span>
                     </div>
                     <div className="flex justify-between py-2 border-b border-white/5">
@@ -217,8 +268,9 @@ export default function Studio() {
                     </div>
                     <div className="flex justify-between py-2 border-b border-white/5">
                       <span className="text-gallery-400">Environment</span>
-                      <span className="text-gallery-200">
-                        {store.useAiSuggestion ? '✨ AI Selected' : store.selectedTemplate?.name}
+                      <span className="text-gallery-200 flex items-center gap-1.5">
+                        {envDisplay.icon}
+                        {envDisplay.text}
                       </span>
                     </div>
                   </div>
