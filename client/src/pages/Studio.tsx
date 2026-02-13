@@ -35,7 +35,7 @@ export default function Studio() {
     if (!store.artworkFile) return;
     
     store.setIsGenerating(true);
-    store.setProgress(0);
+    store.setGenerationProgress(0);
 
     try {
       let environmentPrompt = '';
@@ -44,7 +44,7 @@ export default function Studio() {
       // Determine environment source
       if (store.environmentMode === 'ai-auto' || store.useAiSuggestion) {
         // AI auto-match: analyze artwork and generate environment
-        store.setProgress(15);
+        store.setGenerationProgress(15);
         toast('Analyzing your artwork...', { icon: '🔍' });
 
         const analysisForm = new FormData();
@@ -58,11 +58,11 @@ export default function Studio() {
         const analysis = await axios.post(`${API_URL}/api/ai/analyze-artwork`, analysisForm);
         environmentPrompt = analysis.data.generationPrompt;
         store.setAiPrompt(environmentPrompt);
-        store.setProgress(35);
+        store.setGenerationProgress(35);
       } else if (store.environmentMode === 'ai-prompt' && store.aiGeneratedEnvironment) {
         // User generated a custom environment — use the saved image directly
         environmentImageUrl = `${API_URL}${store.aiGeneratedEnvironment.imageUrl}`;
-        store.setProgress(50);
+        store.setGenerationProgress(50);
         // Track usage
         axios.post(`${API_URL}/api/ai/environments/saved/${store.aiGeneratedEnvironment.id}/use`).catch(() => {});
       } else if (store.selectedTemplate) {
@@ -73,7 +73,7 @@ export default function Studio() {
       // Generate environment image if we don't already have one
       if (!environmentImageUrl && environmentPrompt) {
         toast('Generating environment...', { icon: '🎨' });
-        store.setProgress(50);
+        store.setGenerationProgress(50);
 
         const envResponse = await axios.post(`${API_URL}/api/ai/generate-environment`, {
           prompt: environmentPrompt,
@@ -85,7 +85,7 @@ export default function Studio() {
         environmentImageUrl = envResponse.data.imageUrl;
       }
 
-      store.setProgress(75);
+      store.setGenerationProgress(75);
       toast('Compositing mockup...', { icon: '🖼️' });
 
       // Download environment image as blob
@@ -115,7 +115,7 @@ export default function Studio() {
 
       const result = await axios.post(`${API_URL}/api/generate/composite`, compositeForm);
 
-      store.setProgress(100);
+      store.setGenerationProgress(100);
       store.setGeneratedMockup(`${API_URL}${result.data.mockupUrl}`);
       
       toast.success('Mockup generated!');
