@@ -25,3 +25,65 @@ model Mockup {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 }
+
+model SavedFrame {
+  id            String   @id @default(uuid())
+  userId        String
+  name          String
+  slug          String
+  prompt        String
+  style         String   @default("ai-generated")
+  imageUrl      String
+  thumbnailUrl  String?
+  borderWidth   Int      @default(12)
+  cornerStyle   String   @default("mitered")
+  material      String?
+  colorPrimary  String?
+  colorSecondary String?
+  isPublic      Boolean  @default(false)
+  usageCount    Int      @default(0)
+  tags          String[] @default([])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+  @@index([isPublic])
+  @@unique([userId, slug])
+}
+
+model SavedEnvironment {
+  id            String   @id @default(uuid())
+  userId        String
+  name          String
+  slug          String
+  prompt        String
+  category      String   @default("custom")
+  imageUrl      String
+  thumbnailUrl  String?
+  wallColor     String?
+  lighting      String?
+  roomType      String?
+  mood          String?
+  isPublic      Boolean  @default(false)
+  usageCount    Int      @default(0)
+  tags          String[] @default([])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+  @@index([isPublic])
+  @@index([category])
+  @@unique([userId, slug])
+}
+
+model UserCollection {
+  id        String   @id @default(uuid())
+  userId    String
+  name      String
+  type      String
+  itemIds   String[] @default([])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, type])
+}
