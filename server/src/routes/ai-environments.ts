@@ -65,22 +65,22 @@ Respond in JSON:
   }
 });
 
-// Generate environment from text prompt
-router.post('/generate', async (req: Request, res: Response) => {
-  try {
-    const { prompt, userId, artworkWidth, artworkHeight, unit } = req.body;
-    
-    if (!prompt) {
-      return res.status(400).json({ error: 'Prompt is required' });
-    }
-
-    // Step 1: Use GPT-4o to refine the environment prompt
-    const refinementResponse = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content: `You are an expert interior photographer and 3D artist. Create a detailed prompt for generating a photorealistic room environment suitable for hanging artwork.
+// Helper function to generate a single environment
+async function generateSingleEnvironment(
+  basePrompt: string,
+  artworkWidth: number,
+  artworkHeight: number,
+  unit: string,
+  variationIndex: number,
+  variationStyle?: string
+): Promise<any> {
+  // Step 1: Use GPT-4o to refine the environment prompt
+  const refinementResponse = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are an expert interior photographer and 3D artist. Create a detailed prompt for generating a photorealistic room environment suitable for hanging artwork.
 
 CRITICAL REQUIREMENTS for the DALL-E prompt:
 - Camera: Straight-on view, directly facing the main wall (90 degree angle, flat perspective)
@@ -90,94 +90,164 @@ CRITICAL REQUIREMENTS for the DALL-E prompt:
 - Lighting: Natural and appropriate for artwork display
 - NO artwork on the wall - it should be empty/blank
 
-Respond ONLY with the refined DALL-E prompt text (no JSON, no extra commentary).`
-        },
-        {
-          role: 'user',
-          content: `Create an environment based on: "${prompt}". The artwork to be hung is ${artworkWidth}x${artworkHeight} ${unit}.`
-        }
-      ],
-      max_tokens: 500,
-    });
+Also provide:
+- A short name for this environment (max 30 chars)
+- A brief description (max 100 chars)
+- Category: e.g., living-room, bedroom, gallery, office
+- Mood: e.g., cozy, bright, dramatic, serene
+- Lighting: e.g., natural light, warm ambient, cool daylight
+- Wall color: e.g., white, cream, light gray
 
-    const refinedPrompt = refinementResponse.choices[0].message.content || prompt;
+Respond in JSON format only.`
+      },
+      {
+        role: 'user',
+        content: `Create ${variationStyle ? `a ${variationStyle} variation of` : 'an environment for'}: "${basePrompt}". The artwork to be hung is ${artworkWidth}x${artworkHeight} ${unit}.${variationIndex > 0 ? ` Make this variation ${variationIndex + 1} distinctly different in style.` : ''}`
+      }
+    ],
+    max_tokens: 800,
+    response_format: { type: 'json_object' },
+  });
 
-    // Step 2: Generate the environment image with DALL-E 3
-    const dalleResponse = await openai.images.generate({
-      model: 'dall-e-3',
-      prompt: `${refinedPrompt}. The camera looks straight-on at the wall (90 degrees, flat perspective). The main wall is centered in the composition, empty and ready for artwork. Photorealistic interior photography, 8K, professional lighting.`,
-      n: 1,
-      size: '1024x1024',
-      quality: 'hd',
-      style: 'natural',
-    });
+  const refinement = JSON.parse(refinementResponse.choices[0].message.content || '{}');
+  const refinedPrompt = refinement.dallePrompt || refinement.generationPrompt || refinement.prompt || basePrompt;
 
-    if (!dalleResponse.data || dalleResponse.data.length === 0) {
-      throw new Error('DALL-E returned no image data');
-    }
-    const generatedImageUrl = dalleResponse.data[0].url;
-    if (!generatedImageUrl) {
-      throw new Error('DALL-E returned no image URL');
-    }
+  // Step 2: Generate the environment image with DALL-E 3
+  const dalleResponse = await openai.images.generate({
+    model: 'dall-e-3',
+    prompt: `${refinedPrompt}. The camera looks straight-on at the wall (90 degrees, flat perspective). The main wall is centered in the composition, empty and ready for artwork. Photorealistic interior photography, 8K, professional lighting.`,
+    n: 1,
+    size: '1024x1024',
+    quality: 'hd',
+    style: 'natural',
+  });
 
-    // Step 3: Download and process the image
-    const imageResponse = await fetch(generatedImageUrl);
-    if (!imageResponse.ok) {
-      throw new Error(`Failed to fetch image: ${imageResponse.status}`);
-    }
+  if (!dalleResponse.data || dalleResponse.data.length === 0 || !dalleResponse.data[0].url) {
+    throw new Error('DALL-E returned no image data');
+  }
+
+  const generatedImageUrl = dalleResponse.data[0].url;
+
+  // Step 3: Download and process the image
+  const imageResponse = await fetch(generatedImageUrl);
+  if (!imageResponse.ok) {
+    throw new Error(`Failed to fetch image: ${imageResponse.status}`);
+  }
+  
+  const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+
+  const envsDir = path.join(process.cwd(), 'public', 'environments');
+  fs.mkdirSync(envsDir, { recursive: true });
+
+  const envId = uuid();
+  const filename = `${envId}.png`;
+  const thumbFilename = `${envId}-thumb.png`;
+
+  // Save full-size
+  await sharp(imageBuffer)
+    .resize(2048, 2048, { fit: 'inside' })
+    .png()
+    .toFile(path.join(envsDir, filename));
+
+  // Generate thumbnail
+  await sharp(imageBuffer)
+    .resize(512, 512, { fit: 'inside' })
+    .png()
+    .toFile(path.join(envsDir, thumbFilename));
+
+  const imageUrl = `/environments/${filename}`;
+  const thumbnailUrl = `/environments/${thumbFilename}`;
+
+  return {
+    id: envId,
+    name: refinement.name || `${basePrompt.slice(0, 30)}...`,
+    description: refinement.description || `${basePrompt.slice(0, 100)}...`,
+    dallePrompt: refinedPrompt,
+    category: refinement.category || 'custom',
+    mood: refinement.mood || 'neutral',
+    lighting: refinement.lighting || 'natural',
+    wallColor: refinement.wallColor || 'white',
+    imageUrl,
+    thumbnailUrl,
+    generatedImageUrl,
+  };
+}
+
+// Generate environment from text prompt
+router.post('/generate', async (req: Request, res: Response) => {
+  try {
+    const { prompt, userId, artworkWidth, artworkHeight, unit } = req.body;
     
-    const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+    if (!prompt) {
+      return res.status(400).json({ error: 'Prompt is required' });
+    }
 
-    const envsDir = path.join(process.cwd(), 'public', 'environments');
-    fs.mkdirSync(envsDir, { recursive: true });
-
-    const envId = uuid();
-    const filename = `${envId}.png`;
-    const thumbFilename = `${envId}-thumb.png`;
-
-    // Save full-size
-    await sharp(imageBuffer)
-      .resize(2048, 2048, { fit: 'inside' })
-      .png()
-      .toFile(path.join(envsDir, filename));
-
-    // Generate thumbnail
-    await sharp(imageBuffer)
-      .resize(512, 512, { fit: 'inside' })
-      .png()
-      .toFile(path.join(envsDir, thumbFilename));
-
-    const imageUrl = `/environments/${filename}`;
-    const thumbnailUrl = `/environments/${thumbFilename}`;
+    const result = await generateSingleEnvironment(
+      prompt,
+      artworkWidth,
+      artworkHeight,
+      unit,
+      0
+    );
 
     // Save to database if userId provided
     let savedEnvironment = null;
     if (userId) {
-      const slug = `environment-${Date.now()}-${envId.slice(0, 6)}`;
+      const slug = `environment-${Date.now()}-${result.id.slice(0, 6)}`;
       
       savedEnvironment = await prisma.savedEnvironment.create({
         data: {
-          id: envId,
+          id: result.id,
           userId,
-          name: `${prompt.slice(0, 30)}...`,
+          name: result.name,
           slug,
           prompt,
-          imageUrl,
-          thumbnailUrl,
+          category: result.category,
+          imageUrl: result.imageUrl,
+          thumbnailUrl: result.thumbnailUrl,
           tags: [],
+          wallColor: result.wallColor,
+          lighting: result.lighting,
+          roomType: result.category,
+          mood: result.mood,
         },
       });
     }
 
     res.json({
-      environment: savedEnvironment,
-      imageUrl,
-      thumbnailUrl,
-      generatedImageUrl,
+      environment: savedEnvironment || result,
+      imageUrl: result.imageUrl,
+      thumbnailUrl: result.thumbnailUrl,
+      generatedImageUrl: result.generatedImageUrl,
     });
 
   } catch (error: any) {
     console.error('Environment generation error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Generate 3 environment variations
+router.post('/generate-variations', async (req: Request, res: Response) => {
+  try {
+    const { prompt, userId, artworkWidth, artworkHeight, unit } = req.body;
+    
+    if (!prompt) {
+      return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    const variationStyles = ['luxurious', 'minimalist', 'cozy'];
+    
+    const variations = await Promise.all(
+      variationStyles.map((style, index) =>
+        generateSingleEnvironment(prompt, artworkWidth, artworkHeight, unit, index, style)
+      )
+    );
+
+    res.json({ variations });
+
+  } catch (error: any) {
+    console.error('Variation generation error:', error);
     res.status(500).json({ error: error.message });
   }
 });
