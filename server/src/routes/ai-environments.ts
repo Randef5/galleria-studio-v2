@@ -193,6 +193,7 @@ router.get('/saved/:userId', async (req: Request, res: Response) => {
     if (search) {
       where.OR = [
         { name: { contains: search as string, mode: 'insensitive' } },
+        { prompt: { contains: search as string, mode: 'insensitive' } },
         { tags: { has: search as string } },
       ];
     }
