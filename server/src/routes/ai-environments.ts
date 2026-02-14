@@ -165,7 +165,6 @@ Respond ONLY with the refined DALL-E prompt text (no JSON, no extra commentary).
           imageUrl,
           thumbnailUrl,
           tags: [],
-          description: `${prompt.slice(0, 100)}...`,
         },
       });
     }
@@ -194,7 +193,6 @@ router.get('/saved/:userId', async (req: Request, res: Response) => {
     if (search) {
       where.OR = [
         { name: { contains: search as string, mode: 'insensitive' } },
-        { description: { contains: search as string, mode: 'insensitive' } },
         { tags: { has: search as string } },
       ];
     }
