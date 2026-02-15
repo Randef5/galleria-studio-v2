@@ -165,11 +165,12 @@ export default function Studio() {
   };
 
   const getEnvironmentDisplay = () => {
-    if (store.environmentMode === 'ai-auto' || store.useAiSuggestion) {
-      return { icon: <Sparkles className="w-3 h-3" />, text: 'AI Selected' };
-    }
-    if (store.environmentMode === 'ai-prompt' && store.aiGeneratedEnvironment) {
+    // Show the actual environment name if one is selected, regardless of mode
+    if (store.aiGeneratedEnvironment) {
       return { icon: <Globe className="w-3 h-3" />, text: store.aiGeneratedEnvironment.name };
+    }
+    if (store.environmentMode === 'ai-auto') {
+      return { icon: <Sparkles className="w-3 h-3" />, text: 'AI Auto-Match' };
     }
     return { icon: null, text: store.selectedTemplate?.name || 'None' };
   };
@@ -439,3 +440,4 @@ export default function Studio() {
     </div>
   );
 }
+
