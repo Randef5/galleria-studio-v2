@@ -61,8 +61,17 @@ export default function Studio() {
       let frameContext = getFrameContext();
 
       // Determine environment source
-      if (store.environmentMode === 'ai-auto' || store.useAiSuggestion) {
-        // AI auto-match: analyze artwork and generate environment
+      // Priority: if an AI environment was already generated/selected, use its image directly
+      if ((store.environmentMode === 'ai-prompt' || store.environmentMode === 'ai-auto') && store.aiGeneratedEnvironment) {
+        // Use the pre-generated environment image (Tuscan villa, etc.) — no re-analysis needed
+        environmentImageUrl = `${API_URL}${store.aiGeneratedEnvironment.imageUrl}`;
+        const combinedPrompt = `Frame: ${frameContext.description}. Environment: ${store.aiGeneratedEnvironment.name} — ${store.aiGeneratedEnvironment.prompt || ''}`;
+        store.setAiPrompt(combinedPrompt);
+        store.setGenerationProgress(50);
+        // Track usage
+        axios.post(`${API_URL}/api/ai/environments/saved/${store.aiGeneratedEnvironment.id}/use`).catch(() => {});
+      } else if (store.environmentMode === 'ai-auto') {
+        // AI auto-match: no pre-selected environment, so analyze artwork and generate one
         store.setGenerationProgress(15);
         toast('Analyzing your artwork...', { icon: '🔍' });
 
@@ -86,15 +95,6 @@ export default function Studio() {
         const combinedPrompt = `Frame: ${frameContext.description}. ${environmentPrompt}`;
         store.setAiPrompt(combinedPrompt);
         store.setGenerationProgress(35);
-      } else if (store.environmentMode === 'ai-prompt' && store.aiGeneratedEnvironment) {
-        // User generated a custom environment — use the image URL
-        environmentImageUrl = `${API_URL}${store.aiGeneratedEnvironment.imageUrl}`;
-        // Combine prompts for display
-        const combinedPrompt = `Frame: ${frameContext.description}. Environment: ${store.aiGeneratedEnvironment.prompt || store.aiGeneratedEnvironment.name}`;
-        store.setAiPrompt(combinedPrompt);
-        store.setGenerationProgress(50);
-        // Track usage
-        axios.post(`${API_URL}/api/ai/environments/saved/${store.aiGeneratedEnvironment.id}/use`).catch(() => {});
       } else if (store.selectedTemplate) {
         // Preset template
         environmentPrompt = store.selectedTemplate.prompt;
