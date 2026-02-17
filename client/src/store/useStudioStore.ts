@@ -7,7 +7,7 @@ export type EnvironmentCategory = 'living-room' | 'bedroom' | 'office' | 'galler
 export interface ArtworkDimensions {
   width: number;
   height: number;
-  unit: 'in' | 'cm';
+  unit: 'cm';
 }
 
 export interface TemplateConfig {
@@ -119,9 +119,9 @@ interface StudioState {
 }
 
 const initialDimensions: ArtworkDimensions = {
-  width: 24,
-  height: 36,
-  unit: 'in',
+  width: 70,
+  height: 50,
+  unit: 'cm',
 };
 
 export const useStudioStore = create<StudioState>((set) => ({

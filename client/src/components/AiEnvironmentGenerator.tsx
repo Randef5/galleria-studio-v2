@@ -58,7 +58,7 @@ export default function AiEnvironmentGenerator() {
 
   useEffect(() => {
     loadSavedEnvironments();
-  }, [categoryFilter]);
+  }, [loadSavedEnvironments]);
 
   const handleGenerate = async () => {
     if (!store.aiEnvironmentPrompt.trim()) {
@@ -131,7 +131,7 @@ export default function AiEnvironmentGenerator() {
   const saveVariation = async (variation: any) => {
     try {
       toast('Saving to library...', { icon: '💾' });
-      const response = await axios.post(`${API_URL}/api/ai/environments/generate`, {
+      await axios.post(`${API_URL}/api/ai/environments/generate`, {
         prompt: variation.dallePrompt || variation.description,
         userId: USER_ID,
         artworkWidth: store.artworkDimensions.width,

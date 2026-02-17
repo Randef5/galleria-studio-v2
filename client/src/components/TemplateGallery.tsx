@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, Check, Wand2, Grid3X3, Globe } from 'lucide-react';
-import { useStudioStore, EnvironmentCategory } from '../store/useStudioStore';
+import { Sparkles, Check, Wand2, Grid3X3 } from 'lucide-react';
+import { useStudioStore } from '../store/useStudioStore';
 import { TEMPLATES, CATEGORIES } from '../data/templates';
 import AiEnvironmentGenerator from './AiEnvironmentGenerator';
 
@@ -11,8 +11,6 @@ export default function TemplateGallery() {
     setTemplate, 
     environmentCategory, 
     setEnvironmentCategory,
-    useAiSuggestion,
-    setUseAi,
     environmentMode,
     setEnvironmentMode,
   } = useStudioStore();

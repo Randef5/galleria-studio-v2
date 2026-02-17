@@ -41,9 +41,11 @@ router.post('/generate', async (req: Request, res: Response) => {
 
 CRITICAL requirements for the DALL-E prompt:
 - The frame must be shown perfectly HEAD-ON (90 degrees, flat perspective, no angle)
+- The frame geometry must be planar and presentation-ready (no warped, curved, twisted, exploded, sculptural, or perspective-distorted shapes)
+- Use a single clean rectangular outer profile with realistic craftsmanship details only on the front plane
 - The center of the frame is completely TRANSPARENT/EMPTY (this is where the artwork goes)
-- The frame should appear as if floating or on a minimal background
-- The frame border should be thick enough to look substantial but not overwhelm artwork
+- The frame should appear as if floating on a neutral background
+- The frame border should be substantial but not overwhelming for artwork presentation
 - Must be suitable for photorealistic compositing with interior environments
 
 Respond in JSON:
@@ -75,7 +77,7 @@ Respond in JSON:
     console.log('[FrameGen] Step 2: Calling DALL-E 3...');
     const dalleResponse = await openai.images.generate({
       model: 'dall-e-3',
-      prompt: `${frameSpec.dallePrompt}. CRITICAL: Show the frame PERFECTLY HEAD-ON at exactly 90 degrees (flat perspective, no angle or tilt). The inner area of the frame is completely transparent/blank where artwork will go. Studio lighting, photorealistic, 8K detail.`,
+      prompt: `${frameSpec.dallePrompt}. CRITICAL: Show the frame PERFECTLY HEAD-ON at exactly 90 degrees (flat perspective, no angle or tilt). Keep frame geometry flat and rectangular; do not generate 3D perspective side faces, distortions, bends, or non-rectilinear decorative protrusions. The inner area of the frame is completely transparent/blank where artwork will go. Studio lighting, photorealistic, 8K detail.`,
       n: 1,
       size: '1024x1024',
       quality: 'hd',
@@ -131,6 +133,11 @@ Respond in JSON:
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '') + '-' + frameId.slice(0, 6);
 
+    const parsedBorderWidth = parseInt(frameSpec.borderWidthSuggestion);
+    const safeBorderWidth = Number.isFinite(parsedBorderWidth)
+      ? Math.max(6, Math.min(80, parsedBorderWidth))
+      : 12;
+
     const savedFrame = await prisma.savedFrame.create({
       data: {
         id: frameId,
@@ -141,7 +148,7 @@ Respond in JSON:
         style: 'ai-generated',
         imageUrl,
         thumbnailUrl,
-        borderWidth: parseInt(frameSpec.borderWidthSuggestion) || 12,
+        borderWidth: safeBorderWidth,
         cornerStyle: frameSpec.cornerStyle || 'mitered',
         material: frameSpec.material,
         colorPrimary: frameSpec.colorPrimary,

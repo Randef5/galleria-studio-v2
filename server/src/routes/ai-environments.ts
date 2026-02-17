@@ -66,6 +66,17 @@ Respond in JSON:
 });
 
 // Helper function to generate a single environment
+function getDalleSizeForAspect(artworkWidth: number, artworkHeight: number): '1024x1024' | '1792x1024' | '1024x1792' {
+  const ratio = artworkWidth / artworkHeight;
+  if (Math.abs(1 - ratio) < 0.12) return '1024x1024';
+  return ratio > 1 ? '1792x1024' : '1024x1792';
+}
+
+function getOpeningSpec(artworkWidth: number, artworkHeight: number, unit: string) {
+  const ratio = (artworkWidth / artworkHeight).toFixed(3);
+  return `${artworkWidth}×${artworkHeight} ${unit} (aspect ratio ${ratio}:1)`;
+}
+
 async function generateSingleEnvironment(
   basePrompt: string,
   artworkWidth: number,
@@ -74,6 +85,9 @@ async function generateSingleEnvironment(
   variationIndex: number,
   variationStyle?: string
 ): Promise<any> {
+  const openingSpec = getOpeningSpec(artworkWidth, artworkHeight, unit);
+  const dalleSize = getDalleSizeForAspect(artworkWidth, artworkHeight);
+
   // Step 1: Use GPT-4o to refine the environment prompt
   const refinementResponse = await openai.chat.completions.create({
     model: 'gpt-4o',
@@ -85,10 +99,12 @@ async function generateSingleEnvironment(
 CRITICAL REQUIREMENTS for the DALL-E prompt:
 - Camera: Straight-on view, directly facing the main wall (90 degree angle, flat perspective)
 - Wall: Clean, well-lit main wall in the CENTER of the image where artwork will hang
-- Room: Full room context visible but the wall is the focus
+- MUST include a clearly visible rectangular artwork placeholder opening sized/proportioned for ${openingSpec}
+- Opening should be flat and planar to wall, with subtle realistic shadow/depth (no distorted perspective)
+- Room: Full room context visible but the wall and placeholder are the focus
 - Style: Photorealistic interior photography, 8K quality
 - Lighting: Natural and appropriate for artwork display
-- NO artwork on the wall - it should be empty/blank
+- NO existing artwork, text, mirror reflections, or decorative objects occupying the placeholder area
 
 Also provide:
 - A short name for this environment (max 30 chars)
@@ -102,7 +118,7 @@ Respond in JSON format only.`
       },
       {
         role: 'user',
-        content: `Create ${variationStyle ? `a ${variationStyle} variation of` : 'an environment for'}: "${basePrompt}". The artwork to be hung is ${artworkWidth}x${artworkHeight} ${unit}.${variationIndex > 0 ? ` Make this variation ${variationIndex + 1} distinctly different in style.` : ''}`
+        content: `Create ${variationStyle ? `a ${variationStyle} variation of` : 'an environment for'}: "${basePrompt}". The artwork to be hung is ${openingSpec}. Include a centered rectangular opening reserved for this artwork size.${variationIndex > 0 ? ` Make this variation ${variationIndex + 1} distinctly different in style.` : ''}`
       }
     ],
     max_tokens: 800,
@@ -115,9 +131,9 @@ Respond in JSON format only.`
   // Step 2: Generate the environment image with DALL-E 3
   const dalleResponse = await openai.images.generate({
     model: 'dall-e-3',
-    prompt: `${refinedPrompt}. The camera looks straight-on at the wall (90 degrees, flat perspective). The main wall is centered in the composition, empty and ready for artwork. Photorealistic interior photography, 8K, professional lighting.`,
+    prompt: `${refinedPrompt}. The camera looks straight-on at the wall (90 degrees, flat perspective). Include a centered rectangular opening sized for ${openingSpec}, flat and undistorted, reserved for artwork placement. No artwork in the opening. Photorealistic interior photography, 8K, professional lighting.`,
     n: 1,
-    size: '1024x1024',
+    size: dalleSize,
     quality: 'hd',
     style: 'natural',
   });

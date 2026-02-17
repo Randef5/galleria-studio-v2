@@ -71,30 +71,13 @@ export default function Studio() {
         // Track usage
         axios.post(`${API_URL}/api/ai/environments/saved/${store.aiGeneratedEnvironment.id}/use`).catch(() => {});
       } else if (store.environmentMode === 'ai-auto') {
-        // AI auto-match: no pre-selected environment, so analyze artwork and generate one
-        store.setGenerationProgress(15);
-        toast('Analyzing your artwork...', { icon: '🔍' });
+        // AI auto-match without fragile separate analysis stage
+        // Build a robust, integrated prompt directly from frame + artwork dimensions
+        store.setGenerationProgress(25);
+        environmentPrompt = `Create a photorealistic interior chosen to best showcase a ${store.artworkDimensions.width}×${store.artworkDimensions.height} ${store.artworkDimensions.unit} artwork. Use a centered, straight-on wall composition with a clean rectangular artwork opening and realistic depth cues. Frame style context: ${frameContext.description}${frameContext.material ? ` (${frameContext.material})` : ''}.`;
 
-        const analysisForm = new FormData();
-        analysisForm.append('artwork', store.artworkFile);
-        analysisForm.append('width', String(store.artworkDimensions.width));
-        analysisForm.append('height', String(store.artworkDimensions.height));
-        analysisForm.append('unit', store.artworkDimensions.unit);
-        analysisForm.append('frameStyle', frameContext.style);
-        analysisForm.append('frameDescription', frameContext.description);
-        analysisForm.append('frameMaterial', frameContext.material || '');
-        if (frameContext.prompt) {
-          analysisForm.append('framePrompt', frameContext.prompt);
-        }
-        analysisForm.append('matOption', store.matOption);
-
-        const analysis = await axios.post(`${API_URL}/api/ai/analyze-artwork`, analysisForm);
-        environmentPrompt = analysis.data.generationPrompt;
-        
-        // Combine frame + environment for display
         const combinedPrompt = `Frame: ${frameContext.description}. ${environmentPrompt}`;
         store.setAiPrompt(combinedPrompt);
-        store.setGenerationProgress(35);
       } else if (store.selectedTemplate) {
         // Preset template
         environmentPrompt = store.selectedTemplate.prompt;
@@ -107,14 +90,15 @@ export default function Studio() {
         toast('Generating environment...', { icon: '🎨' });
         store.setGenerationProgress(50);
 
-        const envResponse = await axios.post(`${API_URL}/api/ai/generate-environment`, {
+        const envResponse = await axios.post(`${API_URL}/api/ai/environments/generate`, {
           prompt: environmentPrompt,
-          width: store.artworkDimensions.width,
-          height: store.artworkDimensions.height,
+          userId: USER_ID,
+          artworkWidth: store.artworkDimensions.width,
+          artworkHeight: store.artworkDimensions.height,
           unit: store.artworkDimensions.unit,
         });
 
-        environmentImageUrl = envResponse.data.imageUrl;
+        environmentImageUrl = `${API_URL}${envResponse.data.imageUrl || envResponse.data.environment?.imageUrl}`;
       }
 
       store.setGenerationProgress(75);
