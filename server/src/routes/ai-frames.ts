@@ -43,14 +43,17 @@ CRITICAL requirements for the DALL-E prompt:
 - The frame must be shown perfectly HEAD-ON (90 degrees, flat perspective, no angle)
 - The frame geometry must be planar and presentation-ready (no warped, curved, twisted, exploded, sculptural, or perspective-distorted shapes)
 - Use a single clean rectangular outer profile with realistic craftsmanship details only on the front plane
+- Materials must look physically plausible and buildable by a real frame workshop (joined corners, sensible moulding depth, believable finish)
 - The center of the frame is completely TRANSPARENT/EMPTY (this is where the artwork goes)
-- The frame should appear as if floating on a neutral background
+- The frame should appear as if floating on a neutral studio background
+- No surreal elements, no ornaments crossing into the center opening, no extra props, no text, no watermark, no logos
+- Lighting should be neutral product-photography quality with soft shadowing and visible texture detail
 - The frame border should be substantial but not overwhelming for artwork presentation
 - Must be suitable for photorealistic compositing with interior environments
 
 Respond in JSON:
 {
-  "dallePrompt": "Detailed prompt for generating the frame image. Must specify: PERFECTLY HEAD-ON view (90 degrees), rectangular frame border, transparent/empty center for artwork, photorealistic, product photography style",
+  "dallePrompt": "Detailed prompt for generating the frame image. Must specify: PERFECTLY HEAD-ON view (90 degrees), rectangular frame border with practical joinery/craft details, transparent/empty center for artwork, photorealistic product photography style, no surreal/decorative protrusions into opening",
   "name": "A short descriptive name for this frame (2-4 words)",
   "material": "primary material",
   "cornerStyle": "mitered|rounded|ornate|carved|seamless",
@@ -77,7 +80,7 @@ Respond in JSON:
     console.log('[FrameGen] Step 2: Calling DALL-E 3...');
     const dalleResponse = await openai.images.generate({
       model: 'dall-e-3',
-      prompt: `${frameSpec.dallePrompt}. CRITICAL: Show the frame PERFECTLY HEAD-ON at exactly 90 degrees (flat perspective, no angle or tilt). Keep frame geometry flat and rectangular; do not generate 3D perspective side faces, distortions, bends, or non-rectilinear decorative protrusions. The inner area of the frame is completely transparent/blank where artwork will go. Studio lighting, photorealistic, 8K detail.`,
+      prompt: `${frameSpec.dallePrompt}. CRITICAL: Show the frame PERFECTLY HEAD-ON at exactly 90 degrees (flat perspective, no angle or tilt). Keep frame geometry flat and rectangular; do not generate 3D perspective side faces, distortions, bends, or non-rectilinear decorative protrusions. Use realistic craftsmanship: visible miters/joints, believable material grain/patina, practical moulding profile. No props, no room scene, no hands, no text, no watermark. The inner area of the frame is completely transparent/blank where artwork will go. Neutral studio background, controlled product lighting, photorealistic, 8K detail.`,
       n: 1,
       size: '1024x1024',
       quality: 'hd',
@@ -191,6 +194,7 @@ router.post('/generate-variations', async (req: Request, res: Response) => {
           content: `You are an expert picture frame designer. Given a user's description, generate 3 distinct frame variations.
 
 CRITICAL: Each frame must be shown HEAD-ON (90 degrees, flat perspective, no angle) with a transparent/empty center where artwork goes.
+Each variation must be photorealistic and workshop-buildable (realistic joinery, plausible materials/finishes, no surreal ornament shape).
 
 Respond in JSON:
 {
@@ -221,7 +225,7 @@ Respond in JSON:
     const imagePromises = specs.variations.map((v: any) =>
       openai.images.generate({
         model: 'dall-e-3',
-        prompt: `${v.dallePrompt}. HEAD-ON view (90 degrees, flat), empty transparent center, photorealistic.`,
+        prompt: `${v.dallePrompt}. HEAD-ON view (90 degrees, flat), strictly rectangular geometry, realistic craftsmanship and material finish, empty transparent center, no props/text/watermarks, photorealistic.`,
         n: 1,
         size: '1024x1024',
         quality: 'hd',
