@@ -53,6 +53,13 @@ type FitContainResult = {
   top: number;
 };
 
+type PlaceholderRect = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
 function sanitizePositiveInt(value: unknown, fallback: number): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
@@ -74,6 +81,56 @@ function getContainRect(containerW: number, containerH: number, sourceW: number,
     height,
     left: Math.round((safeContainerW - width) / 2),
     top: Math.round((safeContainerH - height) / 2),
+  };
+}
+
+function parsePositiveNumber(value: unknown): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+function parseFiniteNumber(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parsePlaceholderRect(body: any, envWidth: number, envHeight: number): PlaceholderRect | null {
+  const widthRaw = parsePositiveNumber(body.placeholderWidth);
+  const heightRaw = parsePositiveNumber(body.placeholderHeight);
+  if (!widthRaw || !heightRaw) return null;
+
+  const unit = String(body.placeholderUnit || 'px').toLowerCase();
+  const width = unit === 'percent' ? Math.round((widthRaw / 100) * envWidth) : Math.round(widthRaw);
+  const height = unit === 'percent' ? Math.round((heightRaw / 100) * envHeight) : Math.round(heightRaw);
+
+  if (width <= 0 || height <= 0) return null;
+
+  const centerXRaw = parseFiniteNumber(body.placeholderCenterX);
+  const centerYRaw = parseFiniteNumber(body.placeholderCenterY);
+
+  let left: number;
+  let top: number;
+
+  if (centerXRaw !== null && centerYRaw !== null) {
+    const centerX = unit === 'percent' ? (centerXRaw / 100) * envWidth : centerXRaw;
+    const centerY = unit === 'percent' ? (centerYRaw / 100) * envHeight : centerYRaw;
+    left = Math.round(centerX - width / 2);
+    top = Math.round(centerY - height / 2);
+  } else {
+    const xRaw = Number(body.placeholderX);
+    const yRaw = Number(body.placeholderY);
+    const x = Number.isFinite(xRaw) ? (unit === 'percent' ? (xRaw / 100) * envWidth : xRaw) : (envWidth - width) / 2;
+    const y = Number.isFinite(yRaw) ? (unit === 'percent' ? (yRaw / 100) * envHeight : yRaw) : (envHeight - height) / 2;
+    left = Math.round(x);
+    top = Math.round(y);
+  }
+
+  return {
+    left: Math.max(0, Math.min(left, Math.max(0, envWidth - width))),
+    top: Math.max(0, Math.min(top, Math.max(0, envHeight - height))),
+    width,
+    height,
   };
 }
 
@@ -244,11 +301,7 @@ router.post('/composite', upload.fields([
     const envWidth = envMeta.width || 1920;
     const envHeight = envMeta.height || 1080;
 
-    // Calculate artwork pixel size relative to environment.
-    // Source of truth for proportion is user dimensions (requestedWidth/requestedHeight).
-    const pxPerInch = envWidth / 120;
-    const artW = Math.max(1, Math.round(requestedWidth * pxPerInch * safeScale));
-    const artH = Math.max(1, Math.round(requestedHeight * pxPerInch * safeScale));
+    const placeholderRect = parsePlaceholderRect(req.body, envWidth, envHeight);
 
     // Frame dimensions
     const frameCfg = getFrameConfig(frameStyle);
@@ -256,10 +309,35 @@ router.post('/composite', upload.fields([
     if (aiFrameBorderWidth) {
       frameCfg.width = Math.max(0, Number.parseInt(String(aiFrameBorderWidth), 10) || 0);
     }
+
     const parsedMatWidth = Number(matWidth);
     const safeMatWidth = Number.isFinite(parsedMatWidth) ? Math.max(0, parsedMatWidth) : 0;
-    const matPx = matOption !== 'none' ? Math.round(safeMatWidth * pxPerInch) : 0;
-    const totalFrameW = frameCfg.width;
+
+    // Backwards-compatible base scaling when placeholder target is absent.
+    // If placeholder target is provided, use it as source of truth for final size/position.
+    const fallbackPxPerUnit = (envWidth / 120) * safeScale;
+    const placeholderPxPerUnit = placeholderRect
+      ? Math.min(placeholderRect.width / requestedWidth, placeholderRect.height / requestedHeight)
+      : null;
+    const basePxPerUnit = Math.max(0.1, (placeholderPxPerUnit || fallbackPxPerUnit));
+
+    const baseArtW = Math.max(1, Math.round(requestedWidth * basePxPerUnit));
+    const baseArtH = Math.max(1, Math.round(requestedHeight * basePxPerUnit));
+    const baseMatPx = matOption !== 'none' ? Math.round(safeMatWidth * basePxPerUnit) : 0;
+    const baseFramePx = Math.max(0, Math.round(frameCfg.width));
+
+    const baseTotalW = baseArtW + (baseMatPx * 2) + (baseFramePx * 2);
+    const baseTotalH = baseArtH + (baseMatPx * 2) + (baseFramePx * 2);
+
+    const placeholderFit = placeholderRect
+      ? getContainRect(placeholderRect.width, placeholderRect.height, baseTotalW, baseTotalH)
+      : null;
+
+    const containerScale = placeholderFit ? Math.min(placeholderFit.width / baseTotalW, placeholderFit.height / baseTotalH) : 1;
+    const artW = Math.max(1, Math.round(baseArtW * containerScale));
+    const artH = Math.max(1, Math.round(baseArtH * containerScale));
+    const matPx = Math.max(0, Math.round(baseMatPx * containerScale));
+    const totalFrameW = Math.max(0, Math.round(baseFramePx * containerScale));
     const totalW = artW + (matPx * 2) + (totalFrameW * 2);
     const totalH = artH + (matPx * 2) + (totalFrameW * 2);
 
@@ -288,12 +366,21 @@ router.post('/composite', upload.fields([
     );
 
     // Position on environment (clamped) to avoid accidental overflow overrides.
-    const safePosX = Math.min(100, Math.max(0, Number(posX) || 50));
-    const safePosY = Math.min(100, Math.max(0, Number(posY) || 45));
-    const left = Math.round((safePosX / 100) * envWidth - totalW / 2);
-    const top = Math.round((safePosY / 100) * envHeight - totalH / 2);
-    const clampedLeft = Math.max(0, Math.min(left, Math.max(0, envWidth - totalW)));
-    const clampedTop = Math.max(0, Math.min(top, Math.max(0, envHeight - totalH)));
+    // Placeholder rect takes precedence when supplied.
+    let clampedLeft: number;
+    let clampedTop: number;
+
+    if (placeholderRect && placeholderFit) {
+      clampedLeft = Math.max(0, Math.min(placeholderRect.left + placeholderFit.left, Math.max(0, envWidth - totalW)));
+      clampedTop = Math.max(0, Math.min(placeholderRect.top + placeholderFit.top, Math.max(0, envHeight - totalH)));
+    } else {
+      const safePosX = Math.min(100, Math.max(0, Number(posX) || 50));
+      const safePosY = Math.min(100, Math.max(0, Number(posY) || 45));
+      const left = Math.round((safePosX / 100) * envWidth - totalW / 2);
+      const top = Math.round((safePosY / 100) * envHeight - totalH / 2);
+      clampedLeft = Math.max(0, Math.min(left, Math.max(0, envWidth - totalW)));
+      clampedTop = Math.max(0, Math.min(top, Math.max(0, envHeight - totalH)));
+    }
 
     // Composite
     const result = await sharp(envPath!)
@@ -314,7 +401,8 @@ router.post('/composite', upload.fields([
 
     res.json({
       mockupUrl: `/outputs/${outputId}.jpg`,
-      dimensions: { totalW, totalH, artW, artH },
+      dimensions: { totalW, totalH, artW, artH, left: clampedLeft, top: clampedTop },
+      placeholderUsed: !!placeholderRect,
     });
 
   } catch (error: any) {

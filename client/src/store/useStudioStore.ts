@@ -10,6 +10,16 @@ export interface ArtworkDimensions {
   unit: 'cm';
 }
 
+export interface PlaceholderTarget {
+  x?: number;
+  y?: number;
+  width: number;
+  height: number;
+  centerX?: number;
+  centerY?: number;
+  unit?: 'px' | 'percent';
+}
+
 export interface TemplateConfig {
   id: string;
   name: string;
@@ -18,6 +28,7 @@ export interface TemplateConfig {
   prompt: string;
   wallColor?: string;
   lighting?: string;
+  placeholder?: PlaceholderTarget;
 }
 
 // NEW: AI Generated Frame Types
@@ -50,6 +61,14 @@ export interface AiGeneratedEnvironment {
   tags: string[];
   createdAt: string;
   description?: string; // FIX: Added missing property
+  placeholder?: PlaceholderTarget;
+  placeholderX?: number;
+  placeholderY?: number;
+  placeholderWidth?: number;
+  placeholderHeight?: number;
+  placeholderCenterX?: number;
+  placeholderCenterY?: number;
+  placeholderUnit?: 'px' | 'percent';
 }
 
 // NEW: Mode Types

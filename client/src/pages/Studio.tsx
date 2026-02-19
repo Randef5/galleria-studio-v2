@@ -126,6 +126,32 @@ export default function Studio() {
         compositeForm.append('frameStyle', store.frameStyle);
       }
 
+      // Pass explicit placeholder sizing/position when available.
+      // Server treats this as source-of-truth target bounds for contain fit.
+      const placeholder = store.aiGeneratedEnvironment?.placeholder
+        || store.selectedTemplate?.placeholder
+        || (store.aiGeneratedEnvironment?.placeholderWidth && store.aiGeneratedEnvironment?.placeholderHeight
+          ? {
+              x: store.aiGeneratedEnvironment.placeholderX,
+              y: store.aiGeneratedEnvironment.placeholderY,
+              width: store.aiGeneratedEnvironment.placeholderWidth,
+              height: store.aiGeneratedEnvironment.placeholderHeight,
+              centerX: store.aiGeneratedEnvironment.placeholderCenterX,
+              centerY: store.aiGeneratedEnvironment.placeholderCenterY,
+              unit: store.aiGeneratedEnvironment.placeholderUnit,
+            }
+          : null);
+
+      if (placeholder?.width && placeholder?.height) {
+        compositeForm.append('placeholderWidth', String(placeholder.width));
+        compositeForm.append('placeholderHeight', String(placeholder.height));
+        if (typeof placeholder.x === 'number') compositeForm.append('placeholderX', String(placeholder.x));
+        if (typeof placeholder.y === 'number') compositeForm.append('placeholderY', String(placeholder.y));
+        if (typeof placeholder.centerX === 'number') compositeForm.append('placeholderCenterX', String(placeholder.centerX));
+        if (typeof placeholder.centerY === 'number') compositeForm.append('placeholderCenterY', String(placeholder.centerY));
+        compositeForm.append('placeholderUnit', placeholder.unit || 'percent');
+      }
+
       const result = await axios.post(`${API_URL}/api/generate/composite`, compositeForm);
 
       store.setGenerationProgress(100);
