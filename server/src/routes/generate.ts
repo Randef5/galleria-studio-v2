@@ -40,6 +40,37 @@ function getMatColor(option: string): string {
   return colors[option] || 'transparent';
 }
 
+type FitContainResult = {
+  width: number;
+  height: number;
+  left: number;
+  top: number;
+};
+
+function sanitizePositiveInt(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.max(1, Math.round(parsed));
+}
+
+function getContainRect(containerW: number, containerH: number, sourceW: number, sourceH: number): FitContainResult {
+  const safeContainerW = sanitizePositiveInt(containerW, 1);
+  const safeContainerH = sanitizePositiveInt(containerH, 1);
+  const safeSourceW = sanitizePositiveInt(sourceW, 1);
+  const safeSourceH = sanitizePositiveInt(sourceH, 1);
+
+  const scale = Math.min(safeContainerW / safeSourceW, safeContainerH / safeSourceH);
+  const width = Math.max(1, Math.round(safeSourceW * scale));
+  const height = Math.max(1, Math.round(safeSourceH * scale));
+
+  return {
+    width,
+    height,
+    left: Math.round((safeContainerW - width) / 2),
+    top: Math.round((safeContainerH - height) / 2),
+  };
+}
+
 async function createFramedArtwork(
   artworkBuffer: Buffer,
   artW: number,
@@ -51,25 +82,46 @@ async function createFramedArtwork(
   matColor: string,
   aiFrameBuffer?: Buffer,
 ): Promise<Buffer> {
-  const fw = frameCfg.width;
+  const fw = Math.max(0, sanitizePositiveInt(frameCfg.width, 0));
 
-  // If AI frame provided, use it directly
+  // If AI frame provided, scale with contain logic to avoid frame distortion.
   if (aiFrameBuffer) {
-    // Resize AI frame to match the total dimensions
+    const aiMeta = await sharp(aiFrameBuffer).metadata();
+    const aiFrameRect = getContainRect(totalW, totalH, aiMeta.width || totalW, aiMeta.height || totalH);
+
     const resizedFrame = await sharp(aiFrameBuffer)
-      .resize(totalW, totalH, { fit: 'fill' })
+      .resize(aiFrameRect.width, aiFrameRect.height, { fit: 'fill' })
+      .png()
       .toBuffer();
-    
-    // Composite artwork into the center of the frame
-    const artworkLeft = fw + matPx;
-    const artworkTop = fw + matPx;
-    
-    return await sharp(resizedFrame)
+
+    const framedCanvas = await sharp({
+      create: {
+        width: totalW,
+        height: totalH,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      }
+    })
+      .composite([
+        {
+          input: resizedFrame,
+          left: aiFrameRect.left,
+          top: aiFrameRect.top,
+        }
+      ])
+      .png()
+      .toBuffer();
+
+    const innerW = Math.max(1, totalW - (fw + matPx) * 2);
+    const innerH = Math.max(1, totalH - (fw + matPx) * 2);
+    const artRect = getContainRect(innerW, innerH, artW, artH);
+
+    return await sharp(framedCanvas)
       .composite([
         {
           input: artworkBuffer,
-          left: artworkLeft,
-          top: artworkTop,
+          left: fw + matPx + artRect.left,
+          top: fw + matPx + artRect.top,
         }
       ])
       .png()
@@ -161,6 +213,10 @@ router.post('/composite', upload.fields([
   try {
     const { width, height, unit, frameStyle, matOption, matWidth, posX = 50, posY = 45, scale = 1, aiFrameBorderWidth } = req.body;
 
+    const requestedWidth = sanitizePositiveInt(width, 1);
+    const requestedHeight = sanitizePositiveInt(height, 1);
+    const safeScale = Math.max(0.1, Number(scale) || 1);
+
     // Get environment image path (download if URL provided)
     if (environmentFile) {
       envPath = environmentFile.path;
@@ -182,26 +238,34 @@ router.post('/composite', upload.fields([
     const envWidth = envMeta.width || 1920;
     const envHeight = envMeta.height || 1080;
 
-    // Calculate artwork pixel size relative to environment
-    // Assume a standard wall is ~120" wide for a 1920px image
+    // Calculate artwork pixel size relative to environment.
+    // Source of truth for proportion is user dimensions (requestedWidth/requestedHeight).
     const pxPerInch = envWidth / 120;
-    const artW = Math.round(parseFloat(width) * pxPerInch * parseFloat(scale as string));
-    const artH = Math.round(parseFloat(height) * pxPerInch * parseFloat(scale as string));
+    const artW = Math.max(1, Math.round(requestedWidth * pxPerInch * safeScale));
+    const artH = Math.max(1, Math.round(requestedHeight * pxPerInch * safeScale));
 
     // Frame dimensions
     const frameCfg = getFrameConfig(frameStyle);
     // Use AI frame border width if provided
     if (aiFrameBorderWidth) {
-      frameCfg.width = parseInt(aiFrameBorderWidth);
+      frameCfg.width = Math.max(0, Number.parseInt(String(aiFrameBorderWidth), 10) || 0);
     }
-    const matPx = matOption !== 'none' ? Math.round(parseFloat(matWidth as string) * pxPerInch) : 0;
+    const parsedMatWidth = Number(matWidth);
+    const safeMatWidth = Number.isFinite(parsedMatWidth) ? Math.max(0, parsedMatWidth) : 0;
+    const matPx = matOption !== 'none' ? Math.round(safeMatWidth * pxPerInch) : 0;
     const totalFrameW = frameCfg.width;
     const totalW = artW + (matPx * 2) + (totalFrameW * 2);
     const totalH = artH + (matPx * 2) + (totalFrameW * 2);
 
-    // Resize artwork
+    // Resize artwork with contain logic to prevent stretching/distortion.
+    // Letterbox/pillarbox is transparent so only the frame/mat shows around it.
     const resizedArtwork = await sharp(artworkFile.path)
-      .resize(artW, artH, { fit: 'fill' })
+      .resize(artW, artH, {
+        fit: 'contain',
+        position: 'center',
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      })
+      .png()
       .toBuffer();
 
     // Create frame + mat as a composed image
@@ -217,17 +281,21 @@ router.post('/composite', upload.fields([
       aiFrameBuffer
     );
 
-    // Position on environment
-    const left = Math.round((parseFloat(posX as string) / 100) * envWidth - totalW / 2);
-    const top = Math.round((parseFloat(posY as string) / 100) * envHeight - totalH / 2);
+    // Position on environment (clamped) to avoid accidental overflow overrides.
+    const safePosX = Math.min(100, Math.max(0, Number(posX) || 50));
+    const safePosY = Math.min(100, Math.max(0, Number(posY) || 45));
+    const left = Math.round((safePosX / 100) * envWidth - totalW / 2);
+    const top = Math.round((safePosY / 100) * envHeight - totalH / 2);
+    const clampedLeft = Math.max(0, Math.min(left, Math.max(0, envWidth - totalW)));
+    const clampedTop = Math.max(0, Math.min(top, Math.max(0, envHeight - totalH)));
 
     // Composite
     const result = await sharp(envPath!)
       .composite([
         {
           input: frameBuffer,
-          left: Math.max(0, left),
-          top: Math.max(0, top),
+          left: clampedLeft,
+          top: clampedTop,
         }
       ])
       .jpeg({ quality: 95 })
