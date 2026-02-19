@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type FrameStyle = 'none' | 'thin-black' | 'thin-white' | 'classic-gold' | 'classic-silver' | 'ornate-gold' | 'ornate-dark' | 'natural-oak' | 'natural-walnut' | 'natural-maple' | 'floating-white' | 'floating-black' | 'shadow-box' | 'canvas-wrap';
+export type FrameStyle = 'none' | 'thin-black' | 'thin-white' | 'classic-gold' | 'classic-silver' | 'ornate-gold' | 'ornate-dark' | 'natural-oak' | 'natural-walnut' | 'natural-maple' | 'gallery-brass' | 'matte-bronze' | 'ebonized-oak' | 'weathered-black' | 'museum-white' | 'brushed-chrome' | 'floating-white' | 'floating-black' | 'shadow-box' | 'canvas-wrap';
 export type MatOption = 'none' | 'white' | 'cream' | 'black' | 'grey';
 export type EnvironmentCategory = 'living-room' | 'bedroom' | 'office' | 'gallery' | 'cafe' | 'restaurant' | 'hotel' | 'retail' | 'hallway' | 'outdoor' | 'ai-suggested';
 
